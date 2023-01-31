@@ -1,94 +1,66 @@
 import numpy as np
+from policy_index import policy_index
+
+columns = 'abcdefghi'
+rows = '0123456789'
 
 
-move = np.arange(1, 8)
-
-diag = np.array([
-    move    + move*8,
-    move    - move*8,
-    move*-1 - move*8,
-    move*-1 + move*8
-])
-
-orthog = np.array([
-    move,
-    move*-8,
-    move*-1,
-    move*8
-])
-
-knight = np.array([
-    [2 + 1*8],
-    [2 - 1*8],
-    [1 - 2*8],
-    [-1 - 2*8],
-    [-2 - 1*8],
-    [-2 + 1*8],
-    [-1 + 2*8],
-    [1 + 2*8]
-])
-
-promos = np.array([2*8, 3*8, 4*8])
-pawn_promotion = np.array([
-    -1 + promos,
-    0 + promos,
-    1 + promos
-])
+def index_to_position(x):
+    return columns[x % 9] + rows[x // 9]
 
 
 def make_map():
-    """theoretically possible put-down squares (numpy array) for each pick-up square (list element).
-    squares are [0, 1, ..., 63] for [a1, b1, ..., h8]. squares after 63 are promotion squares.
-    each successive "row" beyond 63 (ie. 64:72, 72:80, 80:88) are for over-promotions to queen, rook, and bishop;
-    respectively. a pawn traverse to row 56:64 signifies a "default" promotion to a knight."""
-    traversable = []
-    for i in range(8):
-        for j in range(8):
-            sq = (8*i + j)
-            traversable.append(
-                sq +
-                np.sort(
-                    np.int32(
-                        np.concatenate((
-                            orthog[0][:7-j], orthog[2][:j], orthog[1][:i], orthog[3][:7-i],
-                            diag[0][:np.min((7-i, 7-j))], diag[3][:np.min((7-i, j))],
-                            diag[1][:np.min((i, 7-j))], diag[2][:np.min((i, j))],
-                            knight[0] if i < 7 and j < 6 else [], knight[1] if i > 0 and j < 6 else [],
-                            knight[2] if i > 1 and j < 7 else [], knight[3] if i > 1 and j > 0 else [],
-                            knight[4] if i > 0 and j > 1 else [], knight[5] if i < 7 and j > 1 else [],
-                            knight[6] if i < 6 and j > 0 else [], knight[7] if i < 6 and j < 7 else [],
-                            pawn_promotion[0] if i == 6 and j > 0 else [],
-                            pawn_promotion[1] if i == 6           else [],
-                            pawn_promotion[2] if i == 6 and j < 7 else [],
-                        ))
-                    )
-                )
-            )
-    z = np.zeros((64*64+8*24, 1858), dtype=np.int32)
-    # first loop for standard moves (for i in 0:1858, stride by 1)
-    i = 0
-    for pickup_index, putdown_indices in enumerate(traversable):
-        for putdown_index in putdown_indices:
-            if putdown_index < 64:
-                z[putdown_index + (64*pickup_index), i] = 1
-                i += 1
-    # second loop for promotions (for i in 1792:1858, stride by ls[j])
-    j = 0
-    j1 = np.array([3, -2, 3, -2, 3])
-    j2 = np.array([3, 3, -5, 3, 3, -5, 3, 3, 1])
-    ls = np.append(j1, 1)
-    for k in range(6):
-        ls = np.append(ls, j2)
-    ls = np.append(ls, j1)
-    ls = np.append(ls, 0)
-    for pickup_index, putdown_indices in enumerate(traversable):
-        for putdown_index in putdown_indices:
-            if putdown_index >= 64:
-                pickup_file = pickup_index % 8
-                promotion_file = putdown_index % 8
-                promotion_rank = (putdown_index // 8) - 8
-                z[4096 + pickup_file*24 + (promotion_file*3+promotion_rank), i] = 1
-                i += ls[j]
-                j += 1
+    z = np.zeros((90 * 90, 2062), dtype=np.int32)
+    # loop for moves (for i in 0:2062, stride by 1)
+    for pickup_index in range(90):
+        for putdown_index in range(90):
+            move = index_to_position(pickup_index) + index_to_position(putdown_index)
+            if policy_index.count(move) == 0:
+                continue
+            move = policy_index.index(move)
+            z[putdown_index + (90 * pickup_index), move] = 1
 
     return z
+
+
+if __name__ == "__main__":
+    header = \
+"""/*
+ This file is part of Leela Chess Zero.
+ Copyright (C) 2019 The LCZero Authors
+
+ Leela Chess is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+
+ Leela Chess is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with Leela Chess.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#pragma once
+
+namespace lczero {
+"""
+    line_length = 15
+    maps = make_map()
+    with open('attention_policy_map.h', 'w') as f:
+        f.write(header + '\n')
+        f.write('const short kAttnPolicyMap[] = {\n')
+        for move_index in range(8100):
+            legal_move_one_hot = maps[move_index]
+            if legal_move_one_hot.sum() == 0:
+                i = -1
+            else:
+                i = np.argmax(legal_move_one_hot)
+            if move_index % line_length == 0 and move_index > 0:
+                f.write('\n')
+            f.write(str(i).rjust(5))
+            f.write(',')
+        f.write('};\n\n')
+        f.write('}  // namespace lczero')

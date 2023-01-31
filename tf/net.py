@@ -556,8 +556,8 @@ class Net:
                     name = name.replace('stddev', 'variance')
 
             if name == 'input/conv2d/kernel:0' and self.pb.format.network_format.input < pb.NetworkFormat.INPUT_112_WITH_CANONICALIZATION_HECTOPLIES:
-                # 50 move rule is the 110th input, or 109 starting from 0.
-                weights[:, 109, :, :] /= 99
+                # 50 move rule is the 122nd input, or 121 starting from 0.
+                weights[:, 121, :, :] /= 99
 
             pb_name, block, pol_encoder_block = self.tf_name_to_pb_name(name)
 

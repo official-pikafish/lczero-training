@@ -55,7 +55,7 @@ class ApplyPolicyMap(tf.keras.layers.Layer):
         self.fc1 = tf.constant(lc0_az_policy_map.make_map())
 
     def call(self, inputs):
-        h_conv_pol_flat = tf.reshape(inputs, [-1, 80 * 8 * 8])
+        h_conv_pol_flat = tf.reshape(inputs, [-1, 52 * 10 * 9])
         return tf.matmul(h_conv_pol_flat,
                          tf.cast(self.fc1, h_conv_pol_flat.dtype))
 
@@ -65,10 +65,8 @@ class ApplyAttentionPolicyMap(tf.keras.layers.Layer):
         super(ApplyAttentionPolicyMap, self).__init__(**kwargs)
         self.fc1 = tf.constant(apm.make_map())
 
-    def call(self, logits, pp_logits):
-        logits = tf.concat([tf.reshape(logits, [-1, 64 * 64]),
-                            tf.reshape(pp_logits, [-1, 8 * 24])],
-                           axis=1)
+    def call(self, logits):
+        logits = tf.reshape(logits, [-1, 90 * 90])
         return tf.matmul(logits, tf.cast(self.fc1, logits.dtype))
 
 class Metric:
@@ -280,7 +278,7 @@ class TFProcess:
 
     def init_net(self):
         self.l2reg = tf.keras.regularizers.l2(l=0.5 * (0.0001))
-        input_var = tf.keras.Input(shape=(112, 8, 8))
+        input_var = tf.keras.Input(shape=(124, 10, 9))
         outputs = self.construct_net(input_var)
         self.model = tf.keras.Model(inputs=input_var, outputs=outputs)
 
@@ -558,9 +556,9 @@ class TFProcess:
             if weight.shape.ndims == 4:
                 # Rescale rule50 related weights as clients do not normalize the input.
                 if weight.name == 'input/conv2d/kernel:0' and self.net.pb.format.network_format.input < pb.NetworkFormat.INPUT_112_WITH_CANONICALIZATION_HECTOPLIES:
-                    num_inputs = 112
-                    # 50 move rule is the 110th input, or 109 starting from 0.
-                    rule50_input = 109
+                    num_inputs = 124
+                    # 50 move rule is the 122nd input, or 121 starting from 0.
+                    rule50_input = 121
                     for i in range(len(new_weight)):
                         if (i % (num_inputs * 9)) // 9 == rule50_input:
                             new_weight[i] = new_weight[i] * 99
@@ -1207,7 +1205,7 @@ class TFProcess:
                                        output_channels=self.RESIDUAL_FILTERS,
                                        name='policy1')
             conv_pol2 = tf.keras.layers.Conv2D(
-                80,
+                52,
                 3,
                 use_bias=True,
                 padding='same',
@@ -1223,7 +1221,7 @@ class TFProcess:
                                        output_channels=self.policy_channels,
                                        name='policy')
             h_conv_pol_flat = tf.keras.layers.Flatten()(conv_pol)
-            h_fc1 = tf.keras.layers.Dense(1858,
+            h_fc1 = tf.keras.layers.Dense(2062,
                                           kernel_initializer='glorot_normal',
                                           kernel_regularizer=self.l2reg,
                                           bias_regularizer=self.l2reg,
@@ -1231,7 +1229,7 @@ class TFProcess:
         elif self.POLICY_HEAD == pb.NetworkFormat.POLICY_ATTENTION:
             # transpose and reshape
             tokens = tf.transpose(flow, perm=[0, 2, 3, 1])
-            tokens = tf.reshape(tokens, [-1, 64, self.RESIDUAL_FILTERS])
+            tokens = tf.reshape(tokens, [-1, 90, self.RESIDUAL_FILTERS])
 
             # SQUARE EMBEDDING: found to increase attention head performance
             tokens = tf.keras.layers.Dense(self.pol_embedding_size, kernel_initializer='glorot_normal',
@@ -1255,34 +1253,17 @@ class TFProcess:
 
             # PAWN PROMOTION: create promotion logits using scalar offsets generated from the promotion-rank keys
             dk = tf.math.sqrt(tf.cast(tf.shape(keys)[-1], self.model_dtype))  # constant for scaling
-            promotion_keys = keys[:, -8:, :]
-            # queen, rook, bishop, knight order
-            promotion_offsets = tf.keras.layers.Dense(4, kernel_initializer='glorot_normal',
-                                                      name='policy/attention/ppo', use_bias=False)(promotion_keys)
-            promotion_offsets = tf.transpose(promotion_offsets, perm=[0, 2, 1]) * dk  # Bx4x8
-            # knight offset is added to the other three
-            promotion_offsets = promotion_offsets[:, :3, :] + promotion_offsets[:, 3:4, :]
 
             # POLICY SELF-ATTENTION: self-attention weights are interpreted as from->to policy
-            matmul_qk = tf.matmul(queries, keys, transpose_b=True)  # Bx64x64 (from 64 queries, 64 keys)
-
-            # q, r, and b promotions are offset from the default promotion logit (knight)
-            n_promo_logits = matmul_qk[:, -16:-8, -8:]  # default traversals from penultimate rank to promotion rank
-            q_promo_logits = tf.expand_dims(n_promo_logits + promotion_offsets[:, 0:1, :], axis=3)  # Bx8x8x1
-            r_promo_logits = tf.expand_dims(n_promo_logits + promotion_offsets[:, 1:2, :], axis=3)
-            b_promo_logits = tf.expand_dims(n_promo_logits + promotion_offsets[:, 2:3, :], axis=3)
-            promotion_logits = tf.concat([q_promo_logits, r_promo_logits, b_promo_logits], axis=3)  # Bx8x8x3
-            promotion_logits = tf.reshape(promotion_logits, [-1, 8, 24])  # logits now alternate a7a8q,a7a8r,a7a8b,...,
+            matmul_qk = tf.matmul(queries, keys, transpose_b=True)  # Bx90x90 (from 90 queries, 90 keys)
 
             # scale the logits by dividing them by sqrt(d_model) to stabilize gradients
-            promotion_logits = promotion_logits / dk  # Bx8x24 (8 from-squares, 3x8 promotions)
-            policy_attn_logits = matmul_qk / dk       # Bx64x64 (64 from-squares, 64 to-squares)
+            policy_attn_logits = matmul_qk / dk       # Bx90x90 (90 from-squares, 90 to-squares)
 
-            attn_wts.append(promotion_logits)
             attn_wts.append(policy_attn_logits)
 
-            # APPLY POLICY MAP: output becomes Bx1856
-            h_fc1 = ApplyAttentionPolicyMap()(policy_attn_logits, promotion_logits)
+            # APPLY POLICY MAP: output becomes Bx2062
+            h_fc1 = ApplyAttentionPolicyMap()(policy_attn_logits)
         else:
             raise ValueError("Unknown policy head type {}".format(
                 self.POLICY_HEAD))

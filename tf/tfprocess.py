@@ -1136,8 +1136,8 @@ class TFProcess:
     def split_heads(inputs, batch_size, num_heads, depth):
         if num_heads < 2:
             return inputs
-        reshaped = tf.reshape(inputs, (batch_size, 64, num_heads, depth))
-        return tf.transpose(reshaped, perm=[0, 2, 1, 3])  # (batch_size, num_heads, 64, depth)
+        reshaped = tf.reshape(inputs, (batch_size, 90, num_heads, depth))
+        return tf.transpose(reshaped, perm=[0, 2, 1, 3])  # (batch_size, num_heads, 90, depth)
 
     def scaled_dot_product_attention(self, q, k, v):
         matmul_qk = tf.matmul(q, k, transpose_b=True)

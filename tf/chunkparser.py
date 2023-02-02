@@ -327,9 +327,9 @@ class ChunkParserInner:
         # Unpack bit planes and cast to 32 bit float
         planes = np.unpackbits(np.frombuffer(planes, dtype=np.uint8), bitorder='little') \
             .reshape((-1, 128))[:, :90].reshape((-1, 9)).astype(np.float32)
-        rule50_divisor = 99.0
+        rule50_divisor = 119.0
         if input_format > 3:
-            rule50_divisor = 100.0
+            rule50_divisor = 120.0
         rule50_plane = struct.pack('f', rule50_count / rule50_divisor) * 90
 
         if input_format == 1:
@@ -612,7 +612,7 @@ class ChunkParserTest(unittest.TestCase):
                             (batch_size, 3)))
 
         fltplanes = truth[1].astype(np.float32)
-        fltplanes[1] /= 99
+        fltplanes[1] /= 119
         for i in range(batch_size):
             data = (batch[0][i][:120],
                     np.array([batch[0][i][j][0] for j in range(120, 123)]),

@@ -235,6 +235,10 @@ class TFProcess:
                 tf.config.experimental.set_memory_growth(gpu, True)
             self.strategy = tf.distribute.MirroredStrategy()
             tf.distribute.experimental_set_strategy(self.strategy)
+        elif self.cfg['gpu'] == 'tpu':
+            tpu = tf.distribute.cluster_resolver.TPUClusterResolver.connect(tpu="local")
+            self.strategy = tf.distribute.TPUStrategy(tpu)
+            tf.distribute.experimental_set_strategy(self.strategy)
         else:
             gpus = tf.config.experimental.list_physical_devices('GPU')
             print(gpus)
@@ -683,7 +687,7 @@ class TFProcess:
         if self.loss_scale != 1:
             grads = self.optimizer.get_unscaled_gradients(grads)
         max_grad_norm = self.cfg['training'].get(
-            'max_grad_norm', 10000.0) * effective_batch_splits
+            'max_grad_norm', 10000.0) * tf.cast(effective_batch_splits, tf.float32)
         grads, grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
         self.optimizer.apply_gradients(zip(grads,
                                            self.model.trainable_weights),

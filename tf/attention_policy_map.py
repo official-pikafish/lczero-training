@@ -22,6 +22,18 @@ def make_map():
 
     return z
 
+def make_pos_enc():
+    pos_enc = np.zeros((1, 90, 90), dtype=np.float32)
+    for pickup_index in range(90):
+        pos_enc[0][pickup_index][pickup_index] = -1
+        for putdown_index in range(90):
+            move = index_to_position(pickup_index) + index_to_position(putdown_index)
+            if policy_index.count(move) == 0:
+                continue
+            pos_enc[0][pickup_index][putdown_index] = 1
+
+    return pos_enc
+
 
 if __name__ == "__main__":
     header = \
@@ -51,6 +63,7 @@ namespace lczero {
     maps = make_map()
     with open('attention_policy_map.h', 'w') as f:
         f.write(header + '\n')
+
         f.write('const short kAttnPolicyMap[] = {\n')
         for move_index in range(8100):
             legal_move_one_hot = maps[move_index]
@@ -62,5 +75,18 @@ namespace lczero {
                 f.write('\n')
             f.write(str(i).rjust(5))
             f.write(',')
-        f.write('};\n\n')
+        f.write('\n};\n\n')
+
+        maps = make_pos_enc()
+        f.write('constexpr int kNumPosEncodingChannels = 90;\n\n')
+        f.write('const float kPosEncoding[90][kNumPosEncodingChannels] = {\n')
+        index = 0
+        for pickup_index in range(90):
+            for putdown_index in range(90):
+                f.write(f'{maps[0][pickup_index][putdown_index]:5.1f},')
+                index += 1
+                if index % line_length == 0:
+                    f.write('\n')
+        f.write('\n};\n\n')
+
         f.write('}  // namespace lczero')

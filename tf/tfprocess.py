@@ -344,7 +344,12 @@ class TFProcess:
                                                      True)
             self.strategy = None
         if self.model_dtype == tf.float16:
-            tf.keras.mixed_precision.experimental.set_policy('mixed_float16')
+            if self.cfg['gpu'] == 'tpu':
+                self.model_dtype = tf.bfloat16
+                self.loss_scale = 1
+                tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
+            else:
+                tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
         self.global_step = tf.Variable(0,
                                        name='global_step',
@@ -416,8 +421,7 @@ class TFProcess:
         except AttributeError:
             self.aggregator = self.orig_optimizer.gradient_aggregator
         if self.loss_scale != 1:
-            self.optimizer = tf.keras.mixed_precision.experimental.LossScaleOptimizer(
-                self.optimizer, self.loss_scale)
+            self.optimizer = tf.keras.mixed_precision.LossScaleOptimizer(self.optimizer)
         if self.cfg['training'].get('lookahead_optimizer'):
             import tensorflow_addons as tfa
             self.optimizer = tfa.optimizers.Lookahead(self.optimizer)
@@ -1519,7 +1523,6 @@ class TFProcess:
                                            activation=embed_activation,
                                            name='policy/embedding')(tokens)
 
-            # ENCODER LAYERS: intermediate layers of self-attention with residual connections
             if self.RESIDUAL_BLOCKS > 0:
                 # ENCODER LAYERS: intermediate layers of self-attention with residual connections
                 for i in range(self.pol_encoder_layers):

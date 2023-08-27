@@ -4,13 +4,14 @@ name: 'kb1-64x6'                       # ideally no spaces
 gpu: 0                                 # gpu id to process on
 
 dataset: 
-  num_chunks: 90                   # newest nof chunks to parse
+  num_chunks: 500000                  # newest nof chunks to parse
   train_ratio: 0.90                    # trainingset ratio
+  allow_less_chunks: true
   # For separated test and train data.
 #  input_train: '/path/to/chunks/*/draw/' # supports glob
 #  input_test: '/path/to/chunks/*/draw/'  # supports glob
   # For a one-shot run with all data in one directory.
-  input: '../data/'
+  input: 'D:/data/'
 
 training:
     batch_size: 2048                   # training batch

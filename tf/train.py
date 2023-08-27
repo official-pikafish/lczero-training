@@ -132,6 +132,20 @@ def main(cmd):
     else:
         chunks = get_latest_chunks(cfg['dataset']['input'], num_chunks,
                                    allow_less, sort_key_fn)
+        if cmd.purge:
+            # Purging all chunks
+            print('Purging training data...', end='', flush=True)
+            exists = False
+            for chunk in chunks:
+                try:
+                    validate_parser = ChunkParser([chunk], get_input_mode(cfg), workers=0)
+                    for _ in validate_parser.sequential():
+                        pass
+                except Exception:
+                    exists = True
+                    os.remove(os.path.join(cfg['dataset']['input'], chunk))
+            print('[done]')
+            sys.exit(int(exists))
         if allow_less:
             num_train = int(len(chunks) * train_ratio)
             num_test = len(chunks) - num_train
@@ -203,7 +217,7 @@ def main(cmd):
                           tf.string))
         validation_dataset = validation_dataset.map(parse_function)
 
-    if tfprocess.strategy is None:  #Mirrored strategy appends prefetch itself with a value depending on number of replicas
+    if tfprocess.strategy is None:  # Mirrored strategy appends prefetch itself with a value depending on number of replicas
         train_dataset = train_dataset.prefetch(4)
         test_dataset = test_dataset.prefetch(4)
         if validation_dataset is not None:
@@ -244,15 +258,15 @@ def main(cmd):
 
 
 if __name__ == "__main__":
-    argparser = argparse.ArgumentParser(description=\
-    'Tensorflow pipeline for training Leela Chess.')
+    argparser = argparse.ArgumentParser(description='Tensorflow pipeline for training Leela Chess.')
     argparser.add_argument('--cfg',
                            type=argparse.FileType('r'),
                            help='yaml configuration with training parameters')
     argparser.add_argument('--output',
                            type=str,
                            help='file to store weights in')
+    argparser.add_argument('--purge', action='store_true', help='purge training data', default=False)
 
-    #mp.set_start_method('spawn')
+    # mp.set_start_method('spawn')
     main(argparser.parse_args())
     mp.freeze_support()

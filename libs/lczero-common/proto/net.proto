@@ -48,6 +48,8 @@ message Weights {
     optional Layer bn_stddivs = 4;
     optional Layer bn_gammas = 5;
     optional Layer bn_betas = 6;
+    optional Layer input_quantize_scale = 7;
+    optional Layer weights_quantize_scale = 8;
   }
 
   message SEunit {
@@ -78,7 +80,6 @@ message Weights {
     optional Layer ln2_betas = 9;
   }
 
-
   message MHA {
     optional Layer q_w = 1;
     optional Layer q_b = 2;
@@ -107,6 +108,62 @@ message Weights {
     optional Layer ln2_betas = 6;
   }
 
+  message PolicyHead {
+    // Policy head
+    // Extra convolution for AZ-style policy head
+    optional ConvBlock policy1 = 100;
+    optional ConvBlock policy = 101;
+    // Add policy encoders for legacy support
+    repeated EncoderLayer pol_encoder = 102;
+    optional uint32 pol_headcount = 103;
+    optional Layer ip_pol_w = 1;
+    optional Layer ip_pol_b = 2;
+    // For policy attention, up to and including NETWORK_SE_WITH_HEADFORMAT the
+    // "embedding" activation is SELU, otherwise it is the default activation.
+    optional Layer ip2_pol_w = 3;  // "wq" in policy attention
+    optional Layer ip2_pol_b = 4;
+    optional Layer ip3_pol_w = 5;  // "wk" in policy attention
+    optional Layer ip3_pol_b = 6;
+    optional Layer ip4_pol_w = 7;  // "ppo" in policy attention
+  }
+
+  message FutureHead {
+    optional Layer ip_fut_w = 1;
+    optional Layer ip_fut_b = 2;
+  }
+
+  message ValueHead {
+    // Value head
+    optional ConvBlock value = 100;
+    optional Layer ip_val_w = 1;  // "embedding" for attention body value
+    optional Layer ip_val_b = 2;
+    optional Layer ip1_val_w = 3;
+    optional Layer ip1_val_b = 4;
+    optional Layer ip2_val_w = 5;
+    optional Layer ip2_val_b = 6;
+    optional Layer ip_val_err_w = 7;
+    optional Layer ip_val_err_b = 8;
+    optional Layer ip_val_cat_w = 9;
+    optional Layer ip_val_cat_b = 10;
+  }
+
+  message PolicyHeads {
+    optional Layer ip_pol_w = 1;    // "embedding" in policy attention
+    optional Layer ip_pol_b = 2;
+    optional PolicyHead vanilla = 3;
+    optional PolicyHead optimistic_st = 4;
+    optional PolicyHead soft = 5;
+    optional PolicyHead opponent = 6;
+    optional PolicyHead next = 7;
+
+  }
+
+  message ValueHeads {
+    optional ValueHead winner = 1;
+    optional ValueHead q = 2;
+    optional ValueHead st = 3;
+  }
+
   // Input convnet.
   optional ConvBlock input = 1;
 
@@ -115,12 +172,25 @@ message Weights {
 
   // Embedding layer for attention body encoders
   // (NETWORK_ATTENTIONBODY_WITH_HEADFORMAT).
+
+  optional Layer ip_emb_preproc_w = 37;
+  optional Layer ip_emb_preproc_b = 38;
+
   optional Layer ip_emb_w = 25;
   optional Layer ip_emb_b = 26;
+
+  optional Layer ip_emb_ln_gammas = 39;
+  optional Layer ip_emb_ln_betas = 40;
+
+
 
   // Input gating (NETWORK_ATTENTIONBODY_WITH_HEADFORMAT).
   optional Layer ip_mult_gate = 33;
   optional Layer ip_add_gate = 34;
+
+  optional FFN ip_emb_ffn = 41;
+  optional Layer ip_emb_ffn_ln_gammas = 42;
+  optional Layer ip_emb_ffn_ln_betas = 43;
 
   // Encoder stack (NETWORK_ATTENTIONBODY_WITH_HEADFORMAT).
   repeated EncoderLayer encoder = 27;
@@ -154,6 +224,10 @@ message Weights {
   optional Layer ip1_val_b = 8;
   optional Layer ip2_val_w = 9;
   optional Layer ip2_val_b = 10;
+
+  optional ValueHeads value_heads = 44;
+  optional PolicyHeads policy_heads = 45;
+  optional FutureHead future_head = 46;
 
   // Moves left head
   optional ConvBlock moves_left = 12;
@@ -211,6 +285,9 @@ message NetworkFormat {
     NETWORK_SE_WITH_HEADFORMAT = 4;
     NETWORK_ONNX = 5;
     NETWORK_ATTENTIONBODY_WITH_HEADFORMAT = 6;
+    NETWORK_CLASSICAL_WITH_MULTIHEADFORMAT = 131;
+    NETWORK_SE_WITH_MULTIHEADFORMAT = 132;
+    NETWORK_ATTENTIONBODY_WITH_MULTIHEADFORMAT = 134;
   }
   optional NetworkStructure network = 3;
 
@@ -252,7 +329,6 @@ message NetworkFormat {
     ACTIVATION_SOFTMAX = 9;
   }
 
-
   // Activation used everywhere except head outputs or otherwise specified.
   enum DefaultActivation {
     DEFAULT_ACTIVATION_RELU = 0;
@@ -262,6 +338,13 @@ message NetworkFormat {
 
   optional ActivationFunction smolgen_activation = 8;
   optional ActivationFunction ffn_activation = 9;
+
+  enum InputEmbeddingFormat {
+    INPUT_EMBEDDING_NONE = 0;
+    INPUT_EMBEDDING_PE_MAP = 1;
+    INPUT_EMBEDDING_PE_DENSE = 2;
+  }
+  optional InputEmbeddingFormat input_embedding = 10;
 }
 
 message Format {

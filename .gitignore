@@ -1,6 +1,5 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
-.idea/
 *.py[cod]
 *$py.class
 *_pb2.py
@@ -107,3 +106,8 @@ venv.bak/
 
 # protobuf stuff
 tf/proto/
+
+# runs
+*.v2
+leelalogs/
+networks/

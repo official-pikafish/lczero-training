@@ -13,6 +13,7 @@ LC0_MINOR_WITH_INPUT_TYPE_4 = 26
 LC0_MINOR_WITH_INPUT_TYPE_5 = 27
 LC0_MINOR_WITH_MISH = 29
 LC0_MINOR_WITH_ATTN_BODY = 30
+LC0_MINOR_WITH_MULTIHEAD = 31
 LC0_PATCH = 0
 WEIGHTS_MAGIC = 0x1c0
 
@@ -20,7 +21,11 @@ WEIGHTS_MAGIC = 0x1c0
 def nested_getattr(obj, attr):
     attributes = attr.split(".")
     for a in attributes:
-        obj = getattr(obj, a)
+        try:
+            obj = getattr(obj, a)
+        except Exception as e:
+            print("Error getting attribute {} in {}".format(a, attr))
+            raise e
     return obj
 
 
@@ -59,6 +64,9 @@ class Net:
         if net == pb.NetworkFormat.NETWORK_ATTENTIONBODY_WITH_HEADFORMAT \
                 and self.pb.min_version.minor < LC0_MINOR_WITH_ATTN_BODY:
             self.pb.min_version.minor = LC0_MINOR_WITH_ATTN_BODY
+        if net == pb.NetworkFormat.NETWORK_ATTENTIONBODY_WITH_MULTIHEADFORMAT \
+                and self.pb.min_version.minor < LC0_MINOR_WITH_MULTIHEAD:
+            self.pb.min_version.minor = LC0_MINOR_WITH_MULTIHEAD
 
     def set_policyformat(self, policy):
         self.pb.format.network_format.policy = policy
@@ -108,6 +116,11 @@ class Net:
         if self.pb.min_version.minor < LC0_MINOR_WITH_ATTN_BODY:
             self.pb.min_version.minor = LC0_MINOR_WITH_ATTN_BODY
         return None
+
+    def set_input_embedding(self, embedding):
+        self.pb.format.network_format.input_embedding = embedding
+        if self.pb.min_version.minor < LC0_MINOR_WITH_MULTIHEAD:
+            self.pb.min_version.minor = LC0_MINOR_WITH_MULTIHEAD
 
     def activation(self, name):
         if name == "relu":
@@ -307,6 +320,14 @@ class Net:
             return d[w] + str(n)
 
         def value_to_bp(l, w):
+            if l == 'dense_error':
+                w = w.split(':')[0]
+                d = {'kernel': 'ip_val_err_w', 'bias': 'ip_val_err_b'}
+                return d[w]
+            elif l == 'dense_cat':
+                w = w.split(':')[0]
+                d = {'kernel': 'ip_val_cat_w', 'bias': 'ip_val_cat_b'}
+                return d[w]
             if l == 'embedding':
                 n = ''
             elif l == 'dense1':
@@ -335,12 +356,32 @@ class Net:
             elif l == 'ppo':
                 n = 4
             else:
-                raise ValueError('Unable to decode mha weight {}/{}'.format(
-                    l, w))
+                raise ValueError(
+                    'Unable to decode attn_policy weight {}/{}'.format(l, w))
             w = w.split(':')[0]
             d = {'kernel': 'ip{}_pol_w', 'bias': 'ip{}_pol_b'}
 
             return d[w].format(n)
+
+        def encoder_to_bp(l, w):
+            w = w.split(':')[0]
+            d = {'gamma': '{}_gammas', 'beta': '{}_betas'}
+
+            return d[w].format(l)
+
+        def mha_to_bp(l, w):
+            s = ''
+            if l.startswith('dense'):
+                s = 'dense'
+            elif l.startswith('w'):
+                s = l[1]
+            else:
+                raise ValueError('Unable to decode mha weight {}/{}'.format(
+                    l, w))
+            w = w.split(':')[0]
+            d = {'kernel': '{}_w', 'bias': '{}_b'}
+
+            return d[w].format(s)
 
         def mha_smolgen_to_bp(l, w):
             s = {
@@ -362,33 +403,6 @@ class Net:
             }
 
             return s[l].format(d[w])
-
-        def encoder_to_bp(l, w):
-            if l == 'ln1':
-                n = 1
-            elif l == 'ln2':
-                n = 2
-            else:
-                raise ValueError(
-                    'Unable to decode encoder weight {}/{}'.format(l, w))
-            w = w.split(':')[0]
-            d = {'gamma': 'ln{}_gammas', 'beta': 'ln{}_betas'}
-
-            return d[w].format(n)
-
-        def mha_to_bp(l, w):
-            s = ''
-            if l.startswith('dense'):
-                s = 'dense'
-            elif l.startswith('w'):
-                s = l[1]
-            else:
-                raise ValueError(
-                    'Unable to decode mha weight {}/{}'.format(l, w))
-            w = w.split(':')[0]
-            d = {'kernel': '{}_w', 'bias': '{}_b'}
-
-            return d[w].format(s)
 
         def ffn_to_bp(l, w):
             w = w.split(':')[0]
@@ -424,15 +438,18 @@ class Net:
         elif base_layer == 'policy1':
             pb_name = 'policy1.' + convblock_to_bp(weights_name)
         elif base_layer == 'policy':
-            if 'dense' in layers[1]:
-                pb_name = conv_policy_to_bp(weights_name)
-            elif layers[1] == 'embedding':
+            pb_prefix = 'policy_heads.'
+            if layers[1] == 'embedding':
                 if layers[2].split(':')[0] == 'kernel':
-                    pb_name = 'ip_pol_w'
+                    pb_name = pb_prefix + 'ip_pol_w'
                 else:
-                    pb_name = 'ip_pol_b'
-            elif layers[1] == 'attention':
-                pb_name = attn_pol_to_bp(layers[2], weights_name)
+                    pb_name = pb_prefix + 'ip_pol_b'
+            elif layers[1] in ['vanilla', 'soft', 'optimistic_st', 'opponent', 'next']:
+                pb_prefix = pb_prefix + layers[1] + '.'
+                if layers[2] == 'attention':
+                    pb_name = attn_pol_to_bp(layers[3], weights_name)
+                pb_name = pb_prefix + pb_name
+
             elif layers[1].startswith('enc_layer_'):
                 pol_encoder_block = int(layers[1].split('_')[2]) - 1
                 if layers[2] == 'mha':
@@ -442,12 +459,26 @@ class Net:
                 else:
                     pb_name = encoder_to_bp(layers[2], weights_name)
             else:
-                pb_name = 'policy.' + convblock_to_bp(weights_name)
+                pass
+                # pb_name = 'policy.' + convblock_to_bp(weights_name)
+
         elif base_layer == 'value':
-            if 'dense' in layers[1] or 'embedding' in layers[1]:
-                pb_name = value_to_bp(layers[1], weights_name)
+            pb_prefix = ''
+            if layers[1] in ['st', 'q', 'winner']:
+                pb_prefix = 'value_heads.' + layers[1] + '.'
+            if 'dense' in layers[2] or 'embedding' in layers[2]:
+                pb_name = value_to_bp(layers[2], weights_name)
+            pb_name = pb_prefix + pb_name
+        
+        elif base_layer == 'future':
+            pb_prefix = 'future_head.'
+            if layers[1].split(':')[0] == 'kernel':
+                pb_name = 'ip_fut_w'
             else:
-                pb_name = 'value.' + convblock_to_bp(weights_name)
+                pb_name = 'ip_fut_b'
+            pb_name = pb_prefix + pb_name
+
+
         elif base_layer == 'moves_left':
             if 'dense' in layers[1] or 'embedding' in layers[1]:
                 pb_name = moves_left_to_bp(layers[1], weights_name)
@@ -474,13 +505,23 @@ class Net:
             else:
                 pb_name = encoder_to_bp(layers[1], weights_name)
         elif base_layer == 'embedding':
-            if layers[1] == 'mult_gate' or layers[1] == 'add_gate':
-                if layers[2].split(':')[0] == 'gate':
-                    pb_name = 'ip_{}'.format(layers[1])
-            elif layers[1].split(':')[0] == 'kernel':
+            if layers[1].split(':')[0] == 'kernel':
                 pb_name = 'ip_emb_w'
             elif layers[1].split(':')[0] == 'bias':
                 pb_name = 'ip_emb_b'
+            elif layers[1] == 'ffn':
+                pb_name = 'ip_emb_ffn.' + ffn_to_bp(layers[2], weights_name)
+            elif layers[1] in ['ln', 'ffn_ln']:
+                pb_name = 'ip_emb_' + encoder_to_bp(layers[1], weights_name)
+            elif layers[1] == 'preprocess':
+                if layers[2].split(':')[0] == 'kernel':
+                    pb_name = 'ip_emb_preproc_w'
+                else:
+                    pb_name = 'ip_emb_preproc_b'
+            if layers[1] == 'mult_gate' or layers[1] == 'add_gate':
+                if layers[2].split(':')[0] == 'gate':
+                    pb_name = 'ip_{}'.format(layers[1])
+
         elif base_layer == 'smol_weight_gen':
             if layers[1].split(':')[0] == 'kernel':
                 pb_name = 'smolgen_w'
@@ -654,7 +695,7 @@ class Net:
 
             if self.pb.format.network_format.input < pb.NetworkFormat.INPUT_112_WITH_CANONICALIZATION_HECTOPLIES:
                 if name == 'input/conv2d/kernel:0':
-                    # 60 move rule is the 122nd input, or 121 starting from 0.
+                    # 50 move rule is the 122nd input, or 121 starting from 0.
                     weights[:, 121, :, :] /= 119
                 elif name == 'embedding/kernel:0':
                     weights[:, 121] /= 119

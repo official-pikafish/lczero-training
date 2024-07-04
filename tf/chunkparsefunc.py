@@ -18,7 +18,7 @@
 import tensorflow as tf
 
 
-def parse_function(planes, probs, winner, q, plies_left):
+def parse_function(planes, probs, winner, q, plies_left, st_q, opp_probs, next_probs, fut):
     """
     Convert unpacked record batches to tensors for tensorflow training
     """
@@ -27,11 +27,23 @@ def parse_function(planes, probs, winner, q, plies_left):
     winner = tf.io.decode_raw(winner, tf.float32)
     q = tf.io.decode_raw(q, tf.float32)
     plies_left = tf.io.decode_raw(plies_left, tf.float32)
+    st_q = tf.io.decode_raw(st_q, tf.float32)
+    opp_probs = tf.io.decode_raw(opp_probs, tf.float32)
+    next_probs = tf.io.decode_raw(next_probs, tf.float32)
+    fut = tf.io.decode_raw(fut, tf.float32)
+
 
     planes = tf.reshape(planes, (-1, 124, 10, 9))
     probs = tf.reshape(probs, (-1, 2062))
     winner = tf.reshape(winner, (-1, 3))
     q = tf.reshape(q, (-1, 3))
     plies_left = tf.reshape(plies_left, (-1, 1))
+    st_q = tf.reshape(st_q, (-1, 3))
+    opp_probs = tf.reshape(opp_probs, (-1, 2062))
+    next_probs = tf.reshape(next_probs, (-1, 2062))
+    fut = tf.reshape(fut, (-1, 16, 14, 90))
+    fut = tf.transpose(fut, perm=[0, 3, 1, 2])
+    fut = tf.concat([fut, 1 - tf.reduce_sum(fut, axis=-1, keepdims=True)], axis=-1)
 
-    return (planes, probs, winner, q, plies_left)
+
+    return (planes, probs, winner, q, plies_left, st_q, opp_probs, next_probs, fut)

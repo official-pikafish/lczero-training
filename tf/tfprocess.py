@@ -1359,21 +1359,6 @@ class TFProcess:
                 print("Model saved in file: {}".format(
                     self.manager.latest_checkpoint))
 
-                # Save normal weights
-                tf.saved_model.save(self.model, os.path.join(
-                    self.root_dir, self.cfg["name"]) + str(evaled_steps))
-
-                # Save swa weights
-                if self.swa_enabled:
-                    backup = self.read_weights()
-                    for (swa, w) in zip(self.swa_weights, self.model.weights):
-                        w.assign(swa.read_value())
-                    evaled_steps = steps.numpy()
-                    tf.saved_model.save(self.model, os.path.join(
-                        self.root_dir, self.cfg["name"]) + "-swa-" + str(evaled_steps))
-                    for (old, w) in zip(backup, self.model.weights):
-                        w.assign(old)
-
                 if True:  # hack protobuf not working !!!
                     path = os.path.join(self.root_dir, self.cfg["name"])
                     leela_path = path + "-" + str(evaled_steps)
